@@ -10,59 +10,111 @@ import { NudgeProvider } from "@/components/providers/NudgeProvider";
 import { PomodoroWidget } from "@/components/pomodoro";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useJornadaStore } from "@/store/useJornadaStore";
+import { createClient } from "@/lib/supabase/client";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const autenticado = useAuthStore((s) => s.autenticado);
   const usuario = useAuthStore((s) => s.usuario);
+  const perfil = useAuthStore((s) => s.perfil);
   const hidratado = useAuthStore((s) => s.hidratado);
+  const setUsuario = useAuthStore((s) => s.setUsuario);
+  const setPerfil = useAuthStore((s) => s.setPerfil);
 
-  // Rotas públicas sem shell/guarda: login e a landing page ("/").
-  const naTelaLogin = pathname === "/login";
-  const naLanding = pathname === "/";
-  const rotaPublica = naTelaLogin || naLanding;
+  // Rotas públicas sem shell/guarda: login, landing, callback, recuperar senha
+  const publicRoutes = ["/login", "/", "/auth/callback", "/recuperar-senha", "/atualizar-senha"];
+  const rotaPublica = publicRoutes.some((route) => pathname === route || pathname.startsWith(route));
 
-  // Semeia a jornada mock conforme o papel — só quando o usuário logado muda
-  // (guarda o último email semeado para não re-semear/resetar a cada render).
+  // Verificar sessão do Supabase no carregamento
+  useEffect(() => {
+    const checkSession = async () => {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session?.user) {
+        setUsuario(session.user);
+        
+        // Buscar perfil
+        const { data: perfilData } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", session.user.id)
+          .single();
+        
+        if (perfilData) {
+          setPerfil(perfilData);
+        }
+      }
+    };
+
+    if (hidratado) {
+      checkSession();
+    }
+  }, [hidratado, setUsuario, setPerfil]);
+
+  // Listener para mudanças de auth (login/logout em outras abas)
+  useEffect(() => {
+    const supabase = createClient();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (event === "SIGNED_IN" && session?.user) {
+          setUsuario(session.user);
+          const { data: perfilData } = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", session.user.id)
+            .single();
+          if (perfilData) {
+            setPerfil(perfilData);
+          }
+        } else if (event === "SIGNED_OUT") {
+          setUsuario(null);
+          setPerfil(null);
+        }
+      }
+    );
+
+    return () => subscription.unsubscribe();
+  }, [setUsuario, setPerfil]);
+
+  // Semeia a jornada mock conforme o papel
   const emailSemeadoRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!hidratado || !autenticado || !usuario) return;
-    if (emailSemeadoRef.current === usuario.email) return;
-    emailSemeadoRef.current = usuario.email;
-    useJornadaStore.getState().configurarPorPapel(usuario.role);
-  }, [hidratado, autenticado, usuario]);
+    if (!hidratado || !autenticado || !perfil) return;
+    if (emailSemeadoRef.current === perfil.id) return;
+    emailSemeadoRef.current = perfil.id;
+    useJornadaStore.getState().configurarPorPapel(perfil.role as "funcionario" | "gestor");
+  }, [hidratado, autenticado, perfil]);
 
   useEffect(() => {
-    // Aguarda a reidratação do localStorage antes de decidir redirecionar.
     if (!hidratado || rotaPublica) return;
 
-    // Não autenticado → manda para o login.
     if (!autenticado) {
       router.replace("/login");
       return;
     }
 
-    // Proteção de papel: funcionário não acessa o painel do gestor.
+    // Proteção de papel: colaborador não acessa painel do gestor
     if (
-      usuario?.role === "funcionario" &&
+      perfil?.role === "colaborador" &&
       (pathname === "/gestor" || pathname.startsWith("/gestor/"))
     ) {
       router.replace("/dashboard");
     }
-  }, [hidratado, rotaPublica, autenticado, usuario, pathname, router]);
+  }, [hidratado, rotaPublica, autenticado, perfil, pathname, router]);
 
-  // Rotas públicas (login e landing): sem shell nem guarda.
+  // Rotas públicas: sem shell nem guarda
   if (rotaPublica) {
     return <>{children}</>;
   }
 
-  // Enquanto reidrata ou redireciona, evita flash de conteúdo protegido.
-  const funcionarioEmRotaGestor =
-    usuario?.role === "funcionario" &&
+  // Enquanto reidrata ou redireciona, evita flash de conteúdo protegido
+  const colaboradorEmRotaGestor =
+    perfil?.role === "colaborador" &&
     (pathname === "/gestor" || pathname.startsWith("/gestor/"));
 
-  if (!hidratado || !autenticado || funcionarioEmRotaGestor) {
+  if (!hidratado || !autenticado || colaboradorEmRotaGestor) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-page">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-border-soft border-t-primary" />
@@ -80,7 +132,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </main>
       </div>
 
-      {/* Widgets globais do app — só nas rotas autenticadas (nunca na landing/login) */}
+      {/* Widgets globais do app */}
       <ErinaChat />
       <NudgeToaster />
       <NudgeProvider />

@@ -1,81 +1,53 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { createClient } from "@/lib/supabase/client";
+import type { User } from "@supabase/supabase-js";
 
 /* ------------------------------------------------------------------ */
 /* Tipos públicos                                                      */
 /* ------------------------------------------------------------------ */
 
-export type Papel = "funcionario" | "gestor";
+export type Papel = "colaborador" | "gestor" | "admin";
 
-export interface Usuario {
-  nome: string;
-  email: string;
-  cargo: string;
+export interface PerfilUsuario {
+  id: string;
+  full_name: string | null;
+  avatar_url: string | null;
+  cargo: string | null;
   role: Papel;
-}
-
-/** Usuário no banco mock: usuário + senha. */
-interface UsuarioMock extends Usuario {
-  senha: string;
-}
-
-export interface LoginResultado {
-  ok: boolean;
-  erro?: string;
+  department: string | null;
+  phone: string | null;
+  notification_preferences: Record<string, boolean>;
 }
 
 export interface AuthState {
   /* --- estado --- */
-  usuario: Usuario | null;
+  usuario: User | null;
+  perfil: PerfilUsuario | null;
   autenticado: boolean;
-  /** Lista mock de usuários que valida o login (persistida). */
-  usuarios: UsuarioMock[];
-  /** true depois que o estado foi reidratado do localStorage (evita flash/SSR mismatch). */
+  carregando: boolean;
   hidratado: boolean;
 
   /* --- ações --- */
-  login: (email: string, senha: string) => LoginResultado;
-  logout: () => void;
-  cadastrarFuncionario: (dados: {
-    nome: string;
+  login: (email: string, senha: string) => Promise<{ ok: boolean; erro?: string }>;
+  loginComOAuth: (provider: "google" | "microsoft") => Promise<{ ok: boolean; erro?: string }>;
+  logout: () => Promise<void>;
+  cadastrar: (dados: {
     email: string;
+    senha: string;
+    nome: string;
     cargo: string;
-  }) => LoginResultado;
+  }) => Promise<{ ok: boolean; erro?: string }>;
+  recuperarSenha: (email: string) => Promise<{ ok: boolean; erro?: string }>;
+  atualizarPerfil: (dados: Partial<PerfilUsuario>) => Promise<{ ok: boolean; erro?: string }>;
+  setUsuario: (usuario: User | null) => void;
+  setPerfil: (perfil: PerfilUsuario | null) => void;
   setHidratado: (v: boolean) => void;
+  setCarregando: (v: boolean) => void;
 }
 
 /* ------------------------------------------------------------------ */
-/* Dados mock                                                          */
-/* ------------------------------------------------------------------ */
-
-/** Senha padrão de todos os usuários demo. */
-export const SENHA_DEMO = "123.321.00";
-
-const USUARIOS_INICIAIS: UsuarioMock[] = [
-  {
-    nome: "Mariana Souza",
-    email: "mariana@demo.com",
-    cargo: "Desenvolvedora",
-    role: "funcionario",
-    senha: SENHA_DEMO,
-  },
-  {
-    nome: "Rafael Andrade",
-    email: "gestor@demo.com",
-    cargo: "Gerente de Projetos",
-    role: "gestor",
-    senha: SENHA_DEMO,
-  },
-];
-
-function semSenha(u: UsuarioMock): Usuario {
-  const { senha: _senha, ...resto } = u;
-  void _senha;
-  return resto;
-}
-
-/* ------------------------------------------------------------------ */
-/* Store (persistido em localStorage — chave 'erina-auth')             */
+/* Store com Supabase Auth                                             */
 /* ------------------------------------------------------------------ */
 
 export const useAuthStore = create<AuthState>()(
@@ -83,59 +55,182 @@ export const useAuthStore = create<AuthState>()(
     (set, get) => ({
       /* --- estado inicial --- */
       usuario: null,
+      perfil: null,
       autenticado: false,
-      usuarios: USUARIOS_INICIAIS,
+      carregando: false,
       hidratado: false,
 
       /* --- ações --- */
-      login: (email, senha) => {
-        const alvo = email.trim().toLowerCase();
-        const usuario = get().usuarios.find(
-          (u) => u.email.toLowerCase() === alvo
-        );
+      login: async (email, senha) => {
+        set({ carregando: true });
+        try {
+          const supabase = createClient();
+          const { data, error } = await supabase.auth.signInWithPassword({
+            email: email.trim().toLowerCase(),
+            password: senha,
+          });
 
-        if (!usuario) {
-          return { ok: false, erro: "E-mail não encontrado." };
-        }
-        if (usuario.senha !== senha) {
-          return { ok: false, erro: "Senha incorreta." };
-        }
+          if (error) {
+            return { ok: false, erro: error.message };
+          }
 
-        set({ usuario: semSenha(usuario), autenticado: true });
-        return { ok: true };
+          if (data.user) {
+            // Buscar perfil do usuário
+            const { data: perfilData } = await supabase
+              .from("profiles")
+              .select("*")
+              .eq("id", data.user.id)
+              .single();
+
+            set({
+              usuario: data.user,
+              perfil: perfilData as PerfilUsuario | null,
+              autenticado: true,
+            });
+            return { ok: true };
+          }
+
+          return { ok: false, erro: "Erro desconhecido ao fazer login." };
+        } catch (err) {
+          return { ok: false, erro: "Erro de conexão. Tente novamente." };
+        } finally {
+          set({ carregando: false });
+        }
       },
 
-      logout: () => set({ usuario: null, autenticado: false }),
+      loginComOAuth: async (provider) => {
+        try {
+          const supabase = createClient();
+          const { data, error } = await supabase.auth.signInWithOAuth({
+            provider,
+            options: {
+              redirectTo: `${window.location.origin}/auth/callback`,
+            },
+          });
 
-      cadastrarFuncionario: ({ nome, email, cargo }) => {
-        const alvo = email.trim().toLowerCase();
-        if (!nome.trim() || !alvo || !cargo.trim()) {
-          return { ok: false, erro: "Preencha nome, e-mail e cargo." };
-        }
-        if (get().usuarios.some((u) => u.email.toLowerCase() === alvo)) {
-          return { ok: false, erro: "Já existe um usuário com esse e-mail." };
-        }
+          if (error) {
+            return { ok: false, erro: error.message };
+          }
 
-        const novo: UsuarioMock = {
-          nome: nome.trim(),
-          email: email.trim(),
-          cargo: cargo.trim(),
-          role: "funcionario",
-          senha: SENHA_DEMO,
-        };
-        set((s) => ({ usuarios: [...s.usuarios, novo] }));
-        return { ok: true };
+          return { ok: true };
+        } catch (err) {
+          return { ok: false, erro: "Erro de conexão. Tente novamente." };
+        }
       },
 
+      logout: async () => {
+        try {
+          const supabase = createClient();
+          await supabase.auth.signOut();
+        } finally {
+          set({ usuario: null, perfil: null, autenticado: false });
+        }
+      },
+
+      cadastrar: async ({ email, senha, nome, cargo }) => {
+        set({ carregando: true });
+        try {
+          const supabase = createClient();
+          const { data, error } = await supabase.auth.signUp({
+            email: email.trim().toLowerCase(),
+            password: senha,
+            options: {
+              data: {
+                full_name: nome.trim(),
+                cargo: cargo.trim(),
+              },
+            },
+          });
+
+          if (error) {
+            return { ok: false, erro: error.message };
+          }
+
+          if (data.user) {
+            // O trigger do Supabase já criou o perfil, vamos atualizar
+            const { error: updateError } = await supabase
+              .from("profiles")
+              .update({
+                full_name: nome.trim(),
+                cargo: cargo.trim(),
+                role: "colaborador",
+              })
+              .eq("id", data.user.id);
+
+            if (updateError) {
+              console.error("Erro ao atualizar perfil:", updateError);
+            }
+
+            return { ok: true };
+          }
+
+          return { ok: false, erro: "Erro desconhecido ao criar conta." };
+        } catch (err) {
+          return { ok: false, erro: "Erro de conexão. Tente novamente." };
+        } finally {
+          set({ carregando: false });
+        }
+      },
+
+      recuperarSenha: async (email) => {
+        try {
+          const supabase = createClient();
+          const { error } = await supabase.auth.resetPasswordForEmail(
+            email.trim().toLowerCase(),
+            {
+              redirectTo: `${window.location.origin}/atualizar-senha`,
+            }
+          );
+
+          if (error) {
+            return { ok: false, erro: error.message };
+          }
+
+          return { ok: true };
+        } catch (err) {
+          return { ok: false, erro: "Erro de conexão. Tente novamente." };
+        }
+      },
+
+      atualizarPerfil: async (dados) => {
+        try {
+          const supabase = createClient();
+          const { usuario } = get();
+          if (!usuario) {
+            return { ok: false, erro: "Usuário não autenticado." };
+          }
+
+          const { error } = await supabase
+            .from("profiles")
+            .update(dados)
+            .eq("id", usuario.id);
+
+          if (error) {
+            return { ok: false, erro: error.message };
+          }
+
+          // Atualizar estado local
+          set((state) => ({
+            perfil: state.perfil ? { ...state.perfil, ...dados } : null,
+          }));
+
+          return { ok: true };
+        } catch (err) {
+          return { ok: false, erro: "Erro de conexão. Tente novamente." };
+        }
+      },
+
+      setUsuario: (usuario) => set({ usuario, autenticado: !!usuario }),
+      setPerfil: (perfil) => set({ perfil }),
       setHidratado: (v) => set({ hidratado: v }),
+      setCarregando: (v) => set({ carregando: v }),
     }),
     {
       name: "erina-auth",
-      // Persiste sessão + lista de usuários (funcionários cadastrados sobrevivem ao reload).
       partialize: (s) => ({
         usuario: s.usuario,
+        perfil: s.perfil,
         autenticado: s.autenticado,
-        usuarios: s.usuarios,
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHidratado(true);
