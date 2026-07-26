@@ -5,10 +5,15 @@ import { StatusCLTCard } from "@/components/dashboard/StatusCLTCard";
 import { ResumoHoje } from "@/components/dashboard/ResumoHoje";
 import { BannerErina } from "@/components/dashboard/BannerErina";
 import { useAuthStore } from "@/store/useAuthStore";
+import { useRealtimePause } from "@/hooks/useRealtimePause";
 
 export default function DashboardPage() {
   const usuario = useAuthStore((s) => s.usuario);
-  const primeiroNome = usuario?.nome?.trim().split(/\s+/)[0] ?? "";
+  const perfil = useAuthStore((s) => s.perfil);
+  const primeiroNome = perfil?.full_name?.trim().split(/\s+/)[0] ?? usuario?.email?.split("@")[0] ?? "";
+
+  // Ativar realtime para receber resumos da IA em tempo real
+  useRealtimePause(usuario?.id);
 
   return (
     <div className="flex flex-col gap-6">
@@ -18,8 +23,8 @@ export default function DashboardPage() {
           {primeiroNome ? `Olá, ${primeiroNome} 👋` : "Dashboard"}
         </h1>
         <p className="mt-1 text-muted">
-          {usuario?.cargo
-            ? `${usuario.cargo} · Visão geral da sua jornada de trabalho`
+          {perfil?.cargo
+            ? `${perfil.cargo} · Visão geral da sua jornada de trabalho`
             : "Visão geral da sua jornada de trabalho"}
         </p>
       </header>
