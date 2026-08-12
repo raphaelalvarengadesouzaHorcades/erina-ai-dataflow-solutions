@@ -29,6 +29,15 @@ export function Topbar() {
   const perfil = useAuthStore((s) => s.perfil);
   const logout = useAuthStore((s) => s.logout);
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
+  const toggleSidebarMobile = useUiStore((s) => s.toggleSidebarMobile);
+
+  const [menuAberto, setMenuAberto] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+  const usuario = useAuthStore((s) => s.usuario);
+  const perfil = useAuthStore((s) => s.perfil);
+  const logout = useAuthStore((s) => s.logout);
+  const toggleSidebar = useUiStore((s) => s.toggleSidebar);
 
   const [menuAberto, setMenuAberto] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -77,6 +86,26 @@ export function Topbar() {
     <>
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border-soft bg-card px-4 md:px-6">
       {/* Esquerda */}
+      <div className="flex items-center gap-2">
+        {/* Mobile: abre drawer */}
+        <button
+          type="button"
+          onClick={toggleSidebarMobile}
+          aria-label="Abrir menu de navegação"
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors hover:bg-primary-light hover:text-primary md:hidden"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+        {/* Desktop: recolhe/expande sidebar */}
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          aria-label="Recolher ou expandir o menu lateral"
+          className="hidden h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors hover:bg-primary-light hover:text-primary md:flex"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+      </div>
       <div className="flex items-center gap-2">
         <button
           type="button"
