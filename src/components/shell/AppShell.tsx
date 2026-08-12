@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
@@ -9,152 +9,128 @@ import { NudgeToaster } from "@/components/nudge/NudgeToaster";
 import { NudgeProvider } from "@/components/providers/NudgeProvider";
 import { PomodoroWidget } from "@/components/pomodoro";
 import { useAuthStore } from "@/store/useAuthStore";
-import { useJornadaStore } from "@/store/useJornadaStore";
 import { createClient } from "@/lib/supabase/client";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  
-  // Estado local para controlar o carregamento inicial
+
   const [carregando, setCarregando] = useState(true);
   const [sessaoVerificada, setSessaoVerificada] = useState(false);
-  
+
   const autenticado = useAuthStore((s) => s.autenticado);
-  const usuario = useAuthStore((s) => s.usuario);
   const perfil = useAuthStore((s) => s.perfil);
-  const hidratado = useAuthStore((s) => s.hidratado);
   const setUsuario = useAuthStore((s) => s.setUsuario);
   const setPerfil = useAuthStore((s) => s.setPerfil);
   const setHidratado = useAuthStore((s) => s.setHidratado);
 
-  // Rotas públicas sem shell/guarda
+  // Rotas públicas — sem shell
   const publicRoutes = ["/login", "/", "/auth/callback", "/recuperar-senha", "/atualizar-senha"];
-  const rotaPublica = publicRoutes.some((route) => pathname === route || pathname.startsWith(route));
+  const isPublic = publicRoutes.some((r) => pathname === r || pathname.startsWith(r));
 
-  // Verificar sessão do Supabase no carregamento
+  // Verifica sessão no mount
   useEffect(() => {
-    const checkSession = async () => {
+    let cancelled = false;
+    async function check() {
       try {
         const supabase = createClient();
         const { data: { session } } = await supabase.auth.getSession();
-        
-        if (session?.user) {
+        if (session?.user && !cancelled) {
           setUsuario(session.user);
-          
-          // Buscar perfil
-          const { data: perfilData } = await supabase
+          const { data: p } = await supabase
             .from("profiles")
             .select("*")
             .eq("id", session.user.id)
             .single();
-          
-          if (perfilData) {
-            setPerfil(perfilData);
-          }
+          if (p) setPerfil(p);
         }
-      } catch (err) {
-        console.error("Erro ao verificar sessão:", err);
+      } catch (e) {
+        console.error("Erro ao verificar sessão:", e);
       } finally {
-        setSessaoVerificada(true);
-        setCarregando(false);
-        // Garantir que hidratado seja true
-        setHidratado(true);
+        if (!cancelled) {
+          setSessaoVerificada(true);
+          setCarregando(false);
+          setHidratado(true);
+        }
       }
-    };
-
-    checkSession();
+    }
+    check();
+    return () => { cancelled = true; };
   }, [setUsuario, setPerfil, setHidratado]);
 
-  // Listener para mudanças de auth
+  // Auth state listener
   useEffect(() => {
     const supabase = createClient();
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (event === "SIGNED_IN" && session?.user) {
           setUsuario(session.user);
-          const { data: perfilData } = await supabase
+          const { data: p } = await supabase
             .from("profiles")
             .select("*")
             .eq("id", session.user.id)
             .single();
-          if (perfilData) {
-            setPerfil(perfilData);
-          }
+          if (p) setPerfil(p);
         } else if (event === "SIGNED_OUT") {
           setUsuario(null);
           setPerfil(null);
         }
       }
     );
-
     return () => subscription.unsubscribe();
   }, [setUsuario, setPerfil]);
 
-  // Semeia a jornada mock conforme o papel
-  const emailSemeadoRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!autenticado || !perfil) return;
-    if (emailSemeadoRef.current === perfil.id) return;
-    emailSemeadoRef.current = perfil.id;
-    useJornadaStore.getState().configurarPorPapel(perfil.role as "funcionario" | "gestor");
-  }, [autenticado, perfil]);
-
   // Redirecionamentos
   useEffect(() => {
-    if (!sessaoVerificada || rotaPublica) return;
-
+    if (!sessaoVerificada || isPublic) return;
     if (!autenticado) {
       router.replace("/login");
-      return;
     }
+  }, [sessaoVerificada, isPublic, autenticado, router]);
 
-    // Proteção de papel: colaborador não acessa painel do gestor
-    if (
-      perfil?.role === "colaborador" &&
-      (pathname === "/gestor" || pathname.startsWith("/gestor/"))
-    ) {
-      router.replace("/dashboard");
-    }
-  }, [sessaoVerificada, rotaPublica, autenticado, perfil, pathname, router]);
-
-  // Rotas públicas: sem shell nem guarda
-  if (rotaPublica) {
+  // Rotas públicas: renderiza só o children
+  if (isPublic) {
     return <>{children}</>;
   }
 
-  // Enquanto verifica sessão, mostra spinner
+  // Loading
   if (carregando) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-page">
+      <div className="flex min-h-screen items-center justify-center bg-[#f7f5ff]">
         <div className="flex flex-col items-center gap-4">
-          <div className="h-8 w-8 animate-spin rounded-full border-2 border-border-soft border-t-primary" />
-          <p className="text-sm text-muted">Carregando...</p>
+          <div className="h-10 w-10 animate-spin rounded-full border-3 border-[#e5e2ee] border-t-[#7b61ff]" />
+          <p className="text-sm text-[#6b6780]">Carregando Erina...</p>
         </div>
       </div>
     );
   }
 
-  // Se não autenticado e já verificou, mostra spinner (vai redirecionar)
+  // Não autenticado
   if (!autenticado) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-page">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-border-soft border-t-primary" />
+      <div className="flex min-h-screen items-center justify-center bg-[#f7f5ff]">
+        <div className="h-10 w-10 animate-spin rounded-full border-3 border-[#e5e2ee] border-t-[#7b61ff]" />
       </div>
     );
   }
 
+  // Layout autenticado
   return (
-    <div className="flex min-h-screen bg-page">
+    <div className="flex min-h-screen bg-[#f7f5ff]">
+      {/* Sidebar fixo à esquerda */}
       <Sidebar />
-      <div className="flex min-h-screen flex-1 flex-col">
+
+      {/* Conteúdo principal */}
+      <div className="flex flex-1 flex-col min-w-0">
         <Topbar />
-        <main className="flex-1 p-6 md:p-8">
-          <div className="mx-auto w-full max-w-6xl">{children}</div>
+        <main className="flex-1 p-6 lg:p-8">
+          <div className="mx-auto max-w-7xl">
+            {children}
+          </div>
         </main>
       </div>
 
-      {/* Widgets globais do app */}
+      {/* Widgets globais */}
       <ErinaChat />
       <NudgeToaster />
       <NudgeProvider />
