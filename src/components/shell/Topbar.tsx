@@ -26,6 +26,7 @@ function iniciais(nome: string): string {
 export function Topbar() {
   const router = useRouter();
   const usuario = useAuthStore((s) => s.usuario);
+  const perfil = useAuthStore((s) => s.perfil);
   const logout = useAuthStore((s) => s.logout);
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
 
@@ -69,8 +70,8 @@ export function Topbar() {
     router.replace("/login");
   }
 
-  const nome = usuario?.nome ?? "Usuária";
-  const cargo = usuario?.cargo ?? "";
+  const nome = perfil?.full_name ?? usuario?.email?.split("@")[0] ?? "Usuária";
+  const cargo = perfil?.cargo ?? "";
 
   return (
     <>
