@@ -3,91 +3,83 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Home,
-  Inbox,
-  Calendar,
-  LayoutGrid,
-  BarChart3,
-  Bell,
+  LayoutDashboard,
+  Bot,
+  Mail,
+  Coffee,
+  ListChecks,
+  MessageSquare,
+  BookOpen,
   Settings,
-  Sparkles,
-  ShieldCheck,
-  Trophy,
-  Users,
+  Moon,
   LogOut,
   Menu,
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useJornadaStore } from "@/store/useJornadaStore";
 
 interface NavItem {
-  href: string;
+  href?: string;
   label: string;
   icon: LucideIcon;
+  onClick?: () => void;
   badge?: string;
-  gestorOnly?: boolean;
 }
 
-const navItems: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: Home },
-  { href: "/mensagens", label: "Mensagens", icon: Inbox },
-  { href: "/calendario", label: "Calendário", icon: Calendar },
-  { href: "/tarefas", label: "Tarefas", icon: LayoutGrid },
-  { href: "/relatorios", label: "Relatórios", icon: BarChart3 },
-  { href: "/alertas", label: "Lembretes", icon: Bell, badge: "3" },
-  { href: "/configuracoes", label: "Configurações", icon: Settings },
-];
-
-const navExtras: NavItem[] = [
-  { href: "/transparencia", label: "Transparência", icon: ShieldCheck },
-  { href: "/minha-saude", label: "Minha Saúde", icon: Trophy },
-  { href: "/gestor", label: "Painel do Gestor", icon: Users, gestorOnly: true },
-];
-
-function NavLink({
-  item,
-  active,
-  onClick,
-}: {
-  item: NavItem;
-  active: boolean;
-  onClick?: () => void;
-}) {
-  const Icon = item.icon;
-  return (
-    <Link
-      href={item.href}
-      onClick={onClick}
-      className={
-        "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all " +
-        (active
-          ? "bg-[#7b61ff] text-white shadow-md shadow-[#7b61ff]/25"
-          : "text-[#5c5870] hover:bg-[#ede9fe] hover:text-[#7b61ff]")
-      }
-    >
-      <Icon className="h-5 w-5 shrink-0" />
-      <span className="flex-1 truncate">{item.label}</span>
-      {item.badge && (
-        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-[#f59e0b] px-1.5 text-[11px] font-bold text-white">
-          {item.badge}
-        </span>
-      )}
-    </Link>
-  );
+interface NavGroup {
+  title: string;
+  items: NavItem[];
 }
 
 export function Sidebar() {
   const pathname = usePathname();
   const perfil = useAuthStore((s) => s.perfil);
   const logout = useAuthStore((s) => s.logout);
-  const role = perfil?.role;
-  const isGestor = role === "gestor";
+  const abrirChat = useJornadaStore((s) => s.abrirChat);
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [tema, setTema] = useState<"dark" | "light">("light");
+
+  useEffect(() => {
+    const atual = (document.documentElement.getAttribute("data-theme") as "dark" | "light" | null) ?? "light";
+    setTema(atual);
+  }, []);
+
+  const toggleTema = useCallback(() => {
+    const proximo = tema === "dark" ? "light" : "dark";
+    setTema(proximo);
+    document.documentElement.setAttribute("data-theme", proximo);
+    try {
+      localStorage.setItem("tema", proximo);
+    } catch {}
+  }, [tema]);
+
+  const navGroups: NavGroup[] = [
+    {
+      title: "PRODUTIVIDADE",
+      items: [
+        { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+        { label: "Assistente Erina", icon: Bot, onClick: () => abrirChat() },
+        { href: "/mensagens", label: "E-mails (Workspace)", icon: Mail, badge: "3" },
+        { href: "/pausas", label: "Modo Intervalo", icon: Coffee },
+        { href: "/tarefas", label: "Minhas Demandas", icon: ListChecks },
+        { href: "/mensagens", label: "WhatsApp", icon: MessageSquare },
+        { href: "/transparencia", label: "Documentação & Processos", icon: BookOpen },
+      ],
+    },
+    {
+      title: "SISTEMA",
+      items: [
+        { href: "/configuracoes", label: "Configurações", icon: Settings },
+        { label: "Modo escuro", icon: Moon, onClick: () => toggleTema() },
+        { label: "Sair", icon: LogOut, onClick: () => logout() },
+      ],
+    },
+  ];
 
   // Fecha mobile ao redimensionar para desktop
   useEffect(() => {
@@ -108,11 +100,58 @@ export function Sidebar() {
     return () => document.removeEventListener("keydown", onKey);
   }, [mobileOpen]);
 
-  const activeHref = pathname;
+  const isActive = (href?: string) => {
+    if (!href) return false;
+    return pathname === href || pathname.startsWith(`${href}/`);
+  };
 
-  const extrasVisiveis = navExtras.filter(
-    (item) => !item.gestorOnly || isGestor
-  );
+  const NavLink = ({ item }: { item: NavItem }) => {
+    const Icon = item.icon;
+    const active = isActive(item.href);
+
+    const className =
+      "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all " +
+      (active
+        ? "bg-[#7b61ff] text-white shadow-md shadow-[#7b61ff]/25"
+        : "text-[#5c5870] hover:bg-[#ede9fe] hover:text-[#7b61ff]");
+
+    if (item.onClick) {
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            item.onClick?.();
+            setMobileOpen(false);
+          }}
+          className={className + " w-full text-left"}
+        >
+          <Icon className="h-5 w-5 shrink-0" />
+          <span className="flex-1 truncate">{item.label}</span>
+          {item.badge && (
+            <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-[#f59e0b] px-1.5 text-[11px] font-bold text-white">
+              {item.badge}
+            </span>
+          )}
+        </button>
+      );
+    }
+
+    return (
+      <Link
+        href={item.href || "#"}
+        onClick={() => setMobileOpen(false)}
+        className={className}
+      >
+        <Icon className="h-5 w-5 shrink-0" />
+        <span className="flex-1 truncate">{item.label}</span>
+        {item.badge && (
+          <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-[#f59e0b] px-1.5 text-[11px] font-bold text-white">
+            {item.badge}
+          </span>
+        )}
+      </Link>
+    );
+  };
 
   return (
     <>
@@ -133,84 +172,41 @@ export function Sidebar() {
       {/* ========================================== */}
       <aside
         className="sticky top-0 hidden h-screen flex-col border-r border-[#e5e2ee] bg-white md:flex"
-        style={{ width: collapsed ? 80 : 260 }}
+        style={{ width: collapsed ? 80 : 260, minWidth: collapsed ? 80 : 260 }}
       >
         {/* Logo */}
         <div className="flex items-center gap-3 px-5 py-6">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#7b61ff] to-[#9b85ff]">
-            <Sparkles className="h-5 w-5 text-white" />
+            <Bot className="h-5 w-5 text-white" />
           </div>
           {!collapsed && (
             <div>
-              <p className="text-base font-bold text-[#1a1b2e]">Erina</p>
-              <p className="text-xs text-[#6b6780]">Controle de Jornada</p>
+              <p className="text-base font-bold text-[#1a1b2e]">Erina.ai</p>
             </div>
           )}
         </div>
 
-        {/* Nav principal */}
-        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.href}
-              item={item}
-              active={activeHref === item.href || activeHref.startsWith(`${item.href}/`)}
-            />
-          ))}
-
-          {/* Separador */}
-          {!collapsed && (
-            <p className="px-3 pb-1 pt-5 text-[11px] font-semibold uppercase tracking-wider text-[#9b94b0]">
-              Mais
-            </p>
-          )}
-          {collapsed && <div className="my-2 border-t border-[#e5e2ee]" />}
-
-          {extrasVisiveis.map((item) => (
-            <NavLink
-              key={item.href}
-              item={item}
-              active={activeHref === item.href || activeHref.startsWith(`${item.href}/`)}
-            />
+        {/* Nav groups */}
+        <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-2">
+          {navGroups.map((group) => (
+            <div key={group.title}>
+              {!collapsed && (
+                <p className="px-3 pb-2 pt-2 text-[10px] font-bold uppercase tracking-widest text-[#9b94b0]">
+                  {group.title}
+                </p>
+              )}
+              {collapsed && <div className="my-2 border-t border-[#e5e2ee]" />}
+              <div className="space-y-1">
+                {group.items.map((item) => (
+                  <NavLink key={item.label} item={item} />
+                ))}
+              </div>
+            </div>
           ))}
         </nav>
 
-        {/* Rodapé */}
-        <div className="space-y-2 p-3">
-          <button
-            type="button"
-            onClick={() => useJornadaStore.getState().abrirChat()}
-            className={
-              "flex w-full items-center gap-3 rounded-xl bg-[#ede9fe] py-2.5 text-left transition-colors hover:bg-[#7b61ff]/10 " +
-              (collapsed ? "justify-center px-0" : "px-3")
-            }
-          >
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white">
-              <Sparkles className="h-4 w-4 text-[#7b61ff]" />
-            </div>
-            {!collapsed && (
-              <>
-                <div className="flex-1 leading-tight">
-                  <p className="text-sm font-bold text-[#1a1b2e]">Erina</p>
-                  <p className="text-xs text-[#6b6780]">Assistente IA</p>
-                </div>
-              </>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => logout()}
-            className={
-              "flex w-full items-center gap-3 rounded-xl py-2 text-sm font-medium text-[#5c5870] transition-colors hover:bg-red-50 hover:text-red-500 " +
-              (collapsed ? "justify-center px-0" : "px-3")
-            }
-          >
-            <LogOut className="h-5 w-5 shrink-0" />
-            {!collapsed && <span className="flex-1 text-left">Sair</span>}
-          </button>
-
-          {/* Toggle colapsar */}
+        {/* Toggle colapsar */}
+        <div className="p-3">
           <button
             type="button"
             onClick={() => setCollapsed(!collapsed)}
@@ -237,12 +233,9 @@ export function Sidebar() {
             <div className="flex items-center justify-between px-5 py-5">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-[#7b61ff] to-[#9b85ff]">
-                  <Sparkles className="h-5 w-5 text-white" />
+                  <Bot className="h-5 w-5 text-white" />
                 </div>
-                <div>
-                  <p className="text-base font-bold text-[#1a1b2e]">Erina</p>
-                  <p className="text-xs text-[#6b6780]">Controle de Jornada</p>
-                </div>
+                <p className="text-base font-bold text-[#1a1b2e]">Erina.ai</p>
               </div>
               <button
                 type="button"
@@ -253,58 +246,21 @@ export function Sidebar() {
               </button>
             </div>
 
-            {/* Nav */}
-            <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2">
-              {navItems.map((item) => (
-                <NavLink
-                  key={item.href}
-                  item={item}
-                  active={activeHref === item.href || activeHref.startsWith(`${item.href}/`)}
-                  onClick={() => setMobileOpen(false)}
-                />
-              ))}
-
-              <p className="px-3 pb-1 pt-5 text-[11px] font-semibold uppercase tracking-wider text-[#9b94b0]">
-                Mais
-              </p>
-              {extrasVisiveis.map((item) => (
-                <NavLink
-                  key={item.href}
-                  item={item}
-                  active={activeHref === item.href || activeHref.startsWith(`${item.href}/`)}
-                  onClick={() => setMobileOpen(false)}
-                />
+            {/* Nav groups */}
+            <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-2">
+              {navGroups.map((group) => (
+                <div key={group.title}>
+                  <p className="px-3 pb-2 pt-2 text-[10px] font-bold uppercase tracking-widest text-[#9b94b0]">
+                    {group.title}
+                  </p>
+                  <div className="space-y-1">
+                    {group.items.map((item) => (
+                      <NavLink key={item.label} item={item} />
+                    ))}
+                  </div>
+                </div>
               ))}
             </nav>
-
-            {/* Rodapé */}
-            <div className="space-y-2 p-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setMobileOpen(false);
-                  useJornadaStore.getState().abrirChat();
-                }}
-                className="flex w-full items-center gap-3 rounded-xl bg-[#ede9fe] px-3 py-2.5 text-left"
-              >
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white">
-                  <Sparkles className="h-4 w-4 text-[#7b61ff]" />
-                </div>
-                <div className="flex-1 leading-tight">
-                  <p className="text-sm font-bold text-[#1a1b2e]">Erina</p>
-                  <p className="text-xs text-[#6b6780]">Assistente IA</p>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => logout()}
-                className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-[#5c5870] hover:bg-red-50 hover:text-red-500"
-              >
-                <LogOut className="h-5 w-5 shrink-0" />
-                <span>Sair</span>
-              </button>
-            </div>
           </aside>
         </>
       )}
